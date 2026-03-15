@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-web
+  namespace: llm-platform-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-web
+  template:
+    metadata:
+      labels:
+        app: llm-web
+    spec:
+      imagePullSecrets:
+      - name: acr-secret
+      containers:
+      - name: web
+        image: ${ACR_LOGIN_SERVER}/llm-web:latest
+        imagePullPolicy: Always
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka:9092"
+        - name: KAFKA_REQUEST_TOPIC
+          value: "llm-requests"
+        - name: KAFKA_RESPONSE_TOPIC
+          value: "llm-responses"
+        - name: PORT
+          value: "8000"
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-web
+  namespace: llm-platform-staging
+spec:
+  selector:
+    app: llm-web
+  ports:
+  - port: 80
+    targetPort: 8000
+    name: http
+  type: LoadBalancer

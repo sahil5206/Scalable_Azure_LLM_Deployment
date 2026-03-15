@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins
+  namespace: jenkins
+  labels:
+    app: jenkins
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jenkins
+  template:
+    metadata:
+      labels:
+        app: jenkins
+    spec:
+      serviceAccountName: jenkins
+      containers:
+      - name: jenkins
+        image: jenkins/jenkins:lts
+        ports:
+        - containerPort: 8080
+          name: http-port
+        - containerPort: 50000
+          name: jnlp-port
+        env:
+        - name: JAVA_OPTS
+          value: "-Xmx2048m -Xms1024m"
+        volumeMounts:
+        - name: jenkins-home
+          mountPath: /var/jenkins_home
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+        resources:
+          requests:
+            cpu: "1000m"
+            memory: "2Gi"
+          limits:
+            cpu: "2000m"
+            memory: "4Gi"
+        livenessProbe:
+          httpGet:
+            path: /login
+            port: 8080
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /login
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: jenkins-home
+        persistentVolumeClaim:
+          claimName: jenkins-pvc
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins
+  namespace: jenkins
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+  - port: 50000
+    targetPort: 50000
+    name: jnlp
+  selector:
+    app: jenkins
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jenkins-pvc
+  namespace: jenkins
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins
+  namespace: jenkins
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: jenkins-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "deployments", "namespaces"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jenkins-cluster-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jenkins-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: jenkins
+  namespace: jenkins

@@ -1,0 +1,95 @@
+# Kubeflow Installation Guide for Azure AKS
+# This file contains the necessary configurations for installing Kubeflow on AKS
+
+# Note: Full Kubeflow installation requires using the Kubeflow manifests
+# or the kubeflow/kubeflow repository. This file provides AKS-specific configurations.
+
+---
+# Namespace for Kubeflow
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubeflow
+  labels:
+    name: kubeflow
+---
+# Storage Class for Azure (if using Azure Files)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: azurefile-csi-kubeflow
+provisioner: file.csi.azure.com
+parameters:
+  skuName: Premium_LRS
+  protocol: smb
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+---
+# Storage Class for Azure Disks (for model storage)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: managed-premium-kubeflow
+provisioner: disk.csi.azure.com
+parameters:
+  skuName: Premium_LRS
+  cachingMode: ReadOnly
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+---
+# PersistentVolumeClaim for model storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-storage-pvc
+  namespace: kubeflow
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: azurefile-csi-kubeflow
+  resources:
+    requests:
+      storage: 100Gi
+---
+# Service Account for Kubeflow Pipelines
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pipeline-runner
+  namespace: kubeflow
+---
+# ClusterRoleBinding for pipeline execution
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pipeline-runner-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin  # In production, use a more restrictive role
+subjects:
+- kind: ServiceAccount
+  name: pipeline-runner
+  namespace: kubeflow
+---
+# ConfigMap for Kubeflow Pipelines configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubeflow-config
+  namespace: kubeflow
+data:
+  # Kafka configuration
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.kafka.svc.cluster.local:9092"
+  KAFKA_REQUEST_TOPIC: "llm-requests"
+  KAFKA_RESPONSE_TOPIC: "llm-responses"
+  
+  # Model configuration
+  DEFAULT_MODEL_NAME: "microsoft/phi-2"
+  MODEL_STORAGE_PATH: "/mnt/models"
+  
+  # KServe configuration
+  KSERVE_NAMESPACE: "kubeflow"
+  KSERVE_DEPLOYMENT_MODE: "Serverless"

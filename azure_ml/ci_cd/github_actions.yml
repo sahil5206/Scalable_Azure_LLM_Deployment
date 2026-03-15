@@ -1,0 +1,84 @@
+name: Azure ML Training and Deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'azure_ml/**'
+      - 'worker/**'
+  workflow_dispatch:
+    inputs:
+      model_name:
+        description: 'Model name to train'
+        required: false
+        default: 'microsoft/phi-2'
+
+env:
+  AZURE_ML_SUBSCRIPTION_ID: ${{ secrets.AZURE_ML_SUBSCRIPTION_ID }}
+  AZURE_ML_RESOURCE_GROUP_NAME: ${{ secrets.AZURE_ML_RESOURCE_GROUP_NAME }}
+  AZURE_ML_WORKSPACE_NAME: ${{ secrets.AZURE_ML_WORKSPACE_NAME }}
+
+jobs:
+  train-model:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r azure_ml/requirements.txt
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Run Training Pipeline
+        run: |
+          python azure_ml/pipelines/llm_pipeline.py
+        env:
+          AZURE_ML_DEFAULT_MODEL_NAME: ${{ github.event.inputs.model_name || 'microsoft/phi-2' }}
+      
+      - name: Deploy to Staging
+        run: |
+          python azure_ml/deployment/deploy_to_aks.py
+        env:
+          AZURE_ML_ENDPOINT_NAME: llm-inference-endpoint-staging
+  
+  deploy-to-production:
+    needs: train-model
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r azure_ml/requirements.txt
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Deploy to Production
+        run: |
+          python azure_ml/deployment/deploy_to_aks.py
+        env:
+          AZURE_ML_ENDPOINT_NAME: llm-inference-endpoint-prod
+      
+      - name: Run Smoke Tests
+        run: |
+          python azure_ml/tests/smoke_tests.py

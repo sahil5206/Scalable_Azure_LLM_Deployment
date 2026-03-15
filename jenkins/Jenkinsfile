@@ -1,0 +1,305 @@
+pipeline {
+    agent any
+    
+    environment {
+        // Azure Configuration
+        AZURE_SUBSCRIPTION_ID = credentials('azure-subscription-id')
+        AZURE_RESOURCE_GROUP = 'llm-platform-rg'
+        AZURE_ML_WORKSPACE = 'llm-ml-workspace'
+        AKS_CLUSTER_NAME = 'llm-aks-cluster'
+        
+        // Container Registry
+        ACR_NAME = credentials('acr-name')
+        ACR_LOGIN_SERVER = "${ACR_NAME}.azurecr.io"
+        
+        // Application Configuration
+        DOCKER_IMAGE_WORKER = "${ACR_LOGIN_SERVER}/llm-worker:${BUILD_NUMBER}"
+        DOCKER_IMAGE_WEB = "${ACR_LOGIN_SERVER}/llm-web:${BUILD_NUMBER}"
+        DOCKER_IMAGE_LATEST_WORKER = "${ACR_LOGIN_SERVER}/llm-worker:latest"
+        DOCKER_IMAGE_LATEST_WEB = "${ACR_LOGIN_SERVER}/llm-web:latest"
+        
+        // Kubernetes
+        KUBERNETES_NAMESPACE = 'llm-platform'
+        
+        // Azure ML
+        AZURE_ML_ENDPOINT_NAME = 'llm-inference-endpoint'
+        MODEL_NAME = 'microsoft/phi-2'
+    }
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 2, unit: 'HOURS')
+        timestamps()
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+                    env.BUILD_TAG = "${BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+        
+        stage('Lint & Test') {
+            parallel {
+                stage('Python Lint') {
+                    steps {
+                        script {
+                            dir('worker') {
+                                sh '''
+                                    pip install flake8 pylint
+                                    flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+                                    flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+                                '''
+                            }
+                            dir('web') {
+                                sh '''
+                                    pip install flake8 pylint
+                                    flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+                                    flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+                                '''
+                            }
+                        }
+                    }
+                }
+                
+                stage('Unit Tests') {
+                    steps {
+                        script {
+                            // Add unit tests here when available
+                            echo 'Unit tests placeholder - add tests as needed'
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Images') {
+            parallel {
+                stage('Build Worker Image') {
+                    steps {
+                        script {
+                            sh """
+                                docker build \
+                                    -f docker/worker/Dockerfile \
+                                    -t ${DOCKER_IMAGE_WORKER} \
+                                    -t ${DOCKER_IMAGE_LATEST_WORKER} \
+                                    .
+                            """
+                        }
+                    }
+                }
+                
+                stage('Build Web Image') {
+                    steps {
+                        script {
+                            sh """
+                                docker build \
+                                    -f docker/web/Dockerfile \
+                                    -t ${DOCKER_IMAGE_WEB} \
+                                    -t ${DOCKER_IMAGE_LATEST_WEB} \
+                                    .
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Push to ACR') {
+            steps {
+                script {
+                    // Login to Azure Container Registry
+                    sh """
+                        az acr login --name ${ACR_NAME}
+                    """
+                    
+                    // Push images
+                    sh """
+                        docker push ${DOCKER_IMAGE_WORKER}
+                        docker push ${DOCKER_IMAGE_LATEST_WORKER}
+                        docker push ${DOCKER_IMAGE_WEB}
+                        docker push ${DOCKER_IMAGE_LATEST_WEB}
+                    """
+                }
+            }
+        }
+        
+        stage('Azure ML Training') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                    expression { params.TRAIN_MODEL == true }
+                }
+            }
+            steps {
+                script {
+                    withCredentials([
+                        string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUB_ID'),
+                        string(credentialsId: 'azure-resource-group', variable: 'AZURE_RG'),
+                        string(credentialsId: 'azure-ml-workspace', variable: 'AZURE_ML_WS')
+                    ]) {
+                        sh """
+                            pip install -r azure_ml/requirements.txt
+                            export AZURE_ML_SUBSCRIPTION_ID=${AZURE_SUB_ID}
+                            export AZURE_ML_RESOURCE_GROUP_NAME=${AZURE_RG}
+                            export AZURE_ML_WORKSPACE_NAME=${AZURE_ML_WS}
+                            export AZURE_ML_DEFAULT_MODEL_NAME=${MODEL_NAME}
+                            python azure_ml/pipelines/llm_pipeline.py
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Staging') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'staging'
+                }
+            }
+            steps {
+                script {
+                    // Get AKS credentials
+                    sh """
+                        az aks get-credentials \
+                            --resource-group ${AZURE_RESOURCE_GROUP} \
+                            --name ${AKS_CLUSTER_NAME} \
+                            --overwrite-existing
+                    """
+                    
+                    // Deploy to staging namespace
+                    sh """
+                        kubectl set image deployment/llm-worker \
+                            worker=${DOCKER_IMAGE_WORKER} \
+                            -n ${KUBERNETES_NAMESPACE}-staging || \
+                        kubectl apply -f jenkins/k8s/staging/worker-deployment.yaml
+                        
+                        kubectl set image deployment/llm-web \
+                            web=${DOCKER_IMAGE_WEB} \
+                            -n ${KUBERNETES_NAMESPACE}-staging || \
+                        kubectl apply -f jenkins/k8s/staging/web-deployment.yaml
+                    """
+                    
+                    // Wait for rollout
+                    sh """
+                        kubectl rollout status deployment/llm-worker -n ${KUBERNETES_NAMESPACE}-staging --timeout=10m
+                        kubectl rollout status deployment/llm-web -n ${KUBERNETES_NAMESPACE}-staging --timeout=10m
+                    """
+                }
+            }
+        }
+        
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    // Get AKS credentials
+                    sh """
+                        az aks get-credentials \
+                            --resource-group ${AZURE_RESOURCE_GROUP} \
+                            --name ${AKS_CLUSTER_NAME} \
+                            --overwrite-existing
+                    """
+                    
+                    // Deploy to production
+                    sh """
+                        kubectl set image deployment/llm-worker \
+                            worker=${DOCKER_IMAGE_WORKER} \
+                            -n ${KUBERNETES_NAMESPACE}
+                        
+                        kubectl set image deployment/llm-web \
+                            web=${DOCKER_IMAGE_WEB} \
+                            -n ${KUBERNETES_NAMESPACE}
+                    """
+                    
+                    // Wait for rollout
+                    sh """
+                        kubectl rollout status deployment/llm-worker -n ${KUBERNETES_NAMESPACE} --timeout=10m
+                        kubectl rollout status deployment/llm-web -n ${KUBERNETES_NAMESPACE} --timeout=10m
+                    """
+                    
+                    // Deploy Azure ML endpoint if configured
+                    script {
+                        withCredentials([
+                            string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUB_ID'),
+                            string(credentialsId: 'azure-resource-group', variable: 'AZURE_RG'),
+                            string(credentialsId: 'azure-ml-workspace', variable: 'AZURE_ML_WS')
+                        ]) {
+                            sh """
+                                export AZURE_ML_SUBSCRIPTION_ID=${AZURE_SUB_ID}
+                                export AZURE_ML_RESOURCE_GROUP_NAME=${AZURE_RG}
+                                export AZURE_ML_WORKSPACE_NAME=${AZURE_ML_WS}
+                                export AZURE_ML_ENDPOINT_NAME=${AZURE_ML_ENDPOINT_NAME}
+                                python azure_ml/deployment/deploy_to_aks.py || echo 'Azure ML deployment skipped'
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Smoke Tests') {
+            steps {
+                script {
+                    // Get service URL
+                    sh """
+                        kubectl get service llm-web -n ${KUBERNETES_NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' > /tmp/web-ip.txt || \
+                        kubectl get service llm-web -n ${KUBERNETES_NAMESPACE} -o jsonpath='{.spec.clusterIP}' > /tmp/web-ip.txt
+                    """
+                    
+                    script {
+                        def webIp = readFile('/tmp/web-ip.txt').trim()
+                        if (webIp) {
+                            sh """
+                                # Health check
+                                curl -f http://${webIp}/health || exit 1
+                                
+                                # Test inference endpoint
+                                curl -f -X POST http://${webIp}/api/inference \
+                                    -H "Content-Type: application/json" \
+                                    -d '{\"prompt\": \"test\", \"max_tokens\": 10}' || exit 1
+                            """
+                        } else {
+                            echo 'Service IP not available, skipping smoke tests'
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Cleanup
+            sh 'docker system prune -f || true'
+        }
+        
+        success {
+            echo 'Pipeline succeeded!'
+            // Send notification (configure as needed)
+            // slackSend(color: 'good', message: "Pipeline ${BUILD_NUMBER} succeeded")
+        }
+        
+        failure {
+            echo 'Pipeline failed!'
+            // Send notification (configure as needed)
+            // slackSend(color: 'danger', message: "Pipeline ${BUILD_NUMBER} failed")
+        }
+        
+        cleanup {
+            // Clean workspace
+            cleanWs()
+        }
+    }
+}

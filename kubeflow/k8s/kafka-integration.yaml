@@ -1,0 +1,44 @@
+# Kafka Integration for Kubeflow Pipelines
+# This allows Kubeflow Pipelines to interact with Kafka for model inference
+
+---
+# Service to expose Kafka to Kubeflow namespace
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-external
+  namespace: kubeflow
+spec:
+  type: ExternalName
+  externalName: kafka.kafka.svc.cluster.local
+  ports:
+  - port: 9092
+    targetPort: 9092
+---
+# ConfigMap for Kafka connection details
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-config
+  namespace: kubeflow
+data:
+  bootstrap_servers: "kafka.kafka.svc.cluster.local:9092"
+  request_topic: "llm-requests"
+  response_topic: "llm-responses"
+  consumer_group: "kubeflow-pipeline-group"
+  auto_offset_reset: "earliest"
+  enable_auto_commit: "false"
+---
+# Secret for Kafka authentication (if using SASL/SSL)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafka-credentials
+  namespace: kubeflow
+type: Opaque
+stringData:
+  # Uncomment and fill if using Kafka with authentication
+  # username: "your-kafka-username"
+  # password: "your-kafka-password"
+  # sasl-mechanism: "PLAIN"
+  # security-protocol: "SASL_PLAINTEXT"

@@ -1,0 +1,16 @@
+name: llm_environment
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - torch>=2.0.0
+    - transformers>=4.35.0
+    - accelerate>=0.24.0
+    - sentencepiece>=0.1.99
+    - huggingface-hub>=0.19.0
+    - confluent-kafka>=2.3.0
+    - pydantic>=2.5.0
+    - azure-ai-ml>=1.0.0

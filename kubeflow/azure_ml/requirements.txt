@@ -1,0 +1,16 @@
+# Azure Machine Learning SDK
+azure-ai-ml>=1.0.0
+azure-identity>=1.15.0
+azure-core>=1.29.0
+
+# Model handling (same as Kubeflow)
+transformers>=4.35.0
+torch>=2.0.0
+huggingface-hub>=0.19.0
+
+# Kafka integration (for connecting with existing system)
+confluent-kafka>=2.3.0
+
+# Utilities
+pydantic>=2.5.0
+pyyaml>=6.0.1

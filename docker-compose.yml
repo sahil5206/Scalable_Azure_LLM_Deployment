@@ -41,19 +41,48 @@ services:
       timeout: 10s
       retries: 5
 
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: kafka-ui
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker/Dockerfile
+    container_name: llm-worker
     depends_on:
       - kafka
-    ports:
-      - "8080:8080"
     environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_REQUEST_TOPIC: llm-requests
+      KAFKA_RESPONSE_TOPIC: llm-responses
+      KAFKA_CONSUMER_GROUP: llm-worker-group
+      MODEL_NAME: microsoft/phi-2
+      BATCH_SIZE: 4
+      METRICS_PORT: 8080
+      HEALTH_CHECK_PORT: 8081
+    ports:
+      - "8080:8080"  # Metrics
+      - "8081:8081"  # Health check
     networks:
       - llm-network
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+    container_name: llm-web
+    depends_on:
+      - kafka
+      - worker
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_REQUEST_TOPIC: llm-requests
+      KAFKA_RESPONSE_TOPIC: llm-responses
+      HOST: 0.0.0.0
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    networks:
+      - llm-network
+    restart: unless-stopped
 
 networks:
   llm-network:

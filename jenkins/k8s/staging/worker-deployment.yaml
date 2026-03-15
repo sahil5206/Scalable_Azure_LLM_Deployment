@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-worker
+  namespace: llm-platform-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-worker
+  template:
+    metadata:
+      labels:
+        app: llm-worker
+    spec:
+      imagePullSecrets:
+      - name: acr-secret
+      containers:
+      - name: worker
+        image: ${ACR_LOGIN_SERVER}/llm-worker:latest
+        imagePullPolicy: Always
+        envFrom:
+        - configMapRef:
+            name: llm-app-config
+        env:
+        - name: KAFKA_CONSUMER_GROUP
+          value: "llm-worker-group-staging"
+        - name: METRICS_PORT
+          value: "8080"
+        - name: HEALTH_CHECK_PORT
+          value: "8081"
+        ports:
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 8081
+          name: health
+        resources:
+          requests:
+            cpu: "1"
+            memory: "4Gi"
+          limits:
+            cpu: "2"
+            memory: "8Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 120
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 10

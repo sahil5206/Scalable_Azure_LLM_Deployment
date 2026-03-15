@@ -1,0 +1,37 @@
+# Copy this file to terraform.tfvars and update with your values
+
+project_name         = "llm-platform"
+location             = "eastus"
+resource_group_name  = "llm-platform-rg"
+
+# AKS Configuration
+aks_cluster_name     = "llm-aks-cluster"
+kubernetes_version   = "1.28"
+aks_system_node_count = 2
+aks_node_vm_size     = "Standard_D4s_v3"
+
+# GPU Node Pool (optional, for LLM inference)
+enable_gpu_node_pool = false
+gpu_node_count       = 0
+gpu_node_max_count   = 4
+gpu_node_vm_size     = "Standard_NC6s_v3"
+
+# Container Registry (must be globally unique, lowercase, alphanumeric, 5-50 chars)
+acr_name             = "llmplatformacr"  # Change this to a unique name
+
+# Storage Account (must be globally unique, lowercase, alphanumeric, 3-24 chars)
+storage_account_name = "llmplatformstg"   # Change this to a unique name
+
+# Event Hubs (Kafka alternative)
+use_event_hubs       = false  # Set to true to use Event Hubs instead of Kafka
+
+# Application Gateway
+enable_application_gateway = false
+
+# Tags
+tags = {
+  Environment = "production"
+  Project     = "LLM-Inference"
+  ManagedBy   = "Terraform"
+  Owner       = "your-team"
+}
