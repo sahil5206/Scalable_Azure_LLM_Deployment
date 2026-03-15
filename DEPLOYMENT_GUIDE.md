@@ -16,10 +16,11 @@ This guide covers everything you need to deploy the LLM Inference Platform with 
 6. [Jenkins CI/CD Setup](#jenkins-cicd-setup)
 7. [Build and Push Docker Images](#build-and-push-docker-images)
 8. [Deploy to Azure Kubernetes Service](#deploy-to-azure-kubernetes-service)
-9. [Configure and Test](#configure-and-test)
-10. [Access the Application](#access-the-application)
-11. [CI/CD Pipeline Usage](#cicd-pipeline-usage)
-12. [Troubleshooting](#troubleshooting)
+9. [Monitoring Setup (Prometheus & Grafana)](#monitoring-setup-prometheus--grafana)
+10. [Configure and Test](#configure-and-test)
+11. [Access the Application](#access-the-application)
+12. [CI/CD Pipeline Usage](#cicd-pipeline-usage)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1216,6 +1217,102 @@ See [jenkins/README.md](jenkins/README.md) for detailed pipeline documentation.
 
 ---
 
+## Monitoring Setup (Prometheus & Grafana)
+
+### Step 1: Deploy Prometheus
+
+```bash
+# Create monitoring namespace
+kubectl create namespace monitoring
+
+# Deploy Prometheus configuration
+kubectl apply -f monitoring/prometheus/prometheus-config.yaml
+
+# Deploy Prometheus
+kubectl apply -f monitoring/prometheus/prometheus-deployment.yaml
+
+# Wait for Prometheus to be ready
+kubectl wait --for=condition=ready pod -l app=prometheus -n monitoring --timeout=300s
+
+# Get Prometheus URL
+kubectl get service prometheus -n monitoring
+```
+
+### Step 2: Deploy Grafana
+
+```bash
+# Create Grafana admin password secret
+kubectl create secret generic grafana-credentials \
+  --from-literal=admin-password='<your-secure-password>' \
+  --namespace monitoring
+
+# Deploy Grafana
+kubectl apply -f monitoring/grafana/grafana-deployment.yaml
+
+# Wait for Grafana to be ready
+kubectl wait --for=condition=ready pod -l app=grafana -n monitoring --timeout=300s
+
+# Get Grafana URL
+kubectl get service grafana -n monitoring
+```
+
+### Step 3: Access Monitoring Dashboards
+
+```bash
+# Port forward for local access
+kubectl port-forward service/prometheus 9090:80 -n monitoring
+kubectl port-forward service/grafana 3000:80 -n monitoring
+
+# Access:
+# Prometheus: http://localhost:9090
+# Grafana: http://localhost:3000
+#   Username: admin
+#   Password: <password-from-secret>
+```
+
+### Step 4: Import Grafana Dashboard
+
+1. **Access Grafana**: http://localhost:3000 (or LoadBalancer IP)
+2. **Login**: admin / <your-password>
+3. **Import Dashboard**:
+   - Go to: **Dashboards** → **Import**
+   - Upload: `monitoring/grafana/dashboards/llm-platform-dashboard.json`
+   - Or paste JSON content
+   - Select Prometheus data source
+   - Click **Import**
+
+### Step 5: Verify Metrics Collection
+
+```bash
+# Check Prometheus targets
+# Access Prometheus UI → Status → Targets
+# All targets should be "UP"
+
+# Check metrics in Prometheus
+# Go to: http://localhost:9090
+# Try query: llm_worker_requests_total
+
+# Verify Grafana can query Prometheus
+# Go to: Grafana → Explore → Select Prometheus
+# Try query: rate(llm_worker_requests_total[5m])
+```
+
+### Step 6: Configure Alerts (Optional)
+
+```bash
+# Add alert rules to Prometheus
+kubectl create configmap prometheus-alerts \
+  --from-file=alerts.yaml=monitoring/alerts/alerts.yaml \
+  --namespace monitoring
+
+# Update Prometheus deployment to include alerts
+# Edit prometheus-deployment.yaml to mount alerts configmap
+```
+
+See [monitoring/README.md](monitoring/README.md) for detailed monitoring setup.
+
+---
+
 ## Post-Deployment Configuration
 
 ### Step 1: Configure Azure ML Endpoint (if using)
@@ -1238,12 +1335,22 @@ kubectl rollout restart deployment/llm-web -n llm-platform
 
 ### Step 2: Set Up Monitoring
 
+**Prometheus & Grafana are already deployed** (see Monitoring Setup section above).
+
 ```bash
+# Access Prometheus
+kubectl port-forward service/prometheus 9090:80 -n monitoring
+# Open: http://localhost:9090
+
+# Access Grafana
+kubectl port-forward service/grafana 3000:80 -n monitoring
+# Open: http://localhost:3000
+
 # View logs
 kubectl logs -f deployment/llm-worker -n llm-platform
 kubectl logs -f deployment/llm-web -n llm-platform
 
-# View metrics
+# View raw metrics
 kubectl port-forward service/llm-worker 8080:8080 -n llm-platform
 # Access: http://localhost:8080/metrics
 ```
@@ -1472,6 +1579,10 @@ Use this checklist to verify everything is working:
 - [ ] Metrics accessible
 - [ ] **Jenkins pipeline runs successfully**
 - [ ] **CI/CD automated deployments working**
+- [ ] **Prometheus deployed and scraping metrics**
+- [ ] **Grafana deployed and accessible**
+- [ ] **Grafana dashboard imported and showing data**
+- [ ] **Alerts configured (optional)**
 
 ---
 

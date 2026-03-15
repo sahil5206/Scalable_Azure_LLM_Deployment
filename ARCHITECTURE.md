@@ -397,6 +397,27 @@ Response Processor
 
 ## 📊 Monitoring & Metrics
 
+### Prometheus & Grafana Stack
+
+The project includes a complete monitoring stack:
+
+- **Prometheus**: Metrics collection and storage
+- **Grafana**: Visualization and dashboards
+- **Pre-configured Dashboards**: LLM Platform-specific metrics
+- **Alerting**: Configurable alert rules
+
+**Deployment:**
+```bash
+# Quick deploy
+./monitoring/deploy.sh  # or .\monitoring\deploy.ps1 on Windows
+
+# Manual deploy
+kubectl apply -f monitoring/prometheus/
+kubectl apply -f monitoring/grafana/
+```
+
+See [monitoring/README.md](monitoring/README.md) for complete setup.
+
 ### Metrics Exposed
 
 **Worker Service** (Prometheus format):
@@ -405,6 +426,9 @@ Response Processor
 - `llm_worker_tokens_generated_total`: Tokens generated
 - `llm_worker_kafka_consumer_lag`: Consumer lag
 - `llm_worker_model_inference_duration_seconds`: Model inference time
+- `llm_worker_active_requests`: Currently active requests
+- `llm_worker_kafka_messages_consumed_total`: Kafka messages consumed
+- `llm_worker_kafka_messages_produced_total`: Kafka messages produced
 
 **Web Frontend**:
 - Request count and latency

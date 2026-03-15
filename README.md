@@ -108,6 +108,10 @@ See [azure_ml/INDUSTRY_GRADE_SETUP.md](azure_ml/INDUSTRY_GRADE_SETUP.md) for com
 │   ├── Jenkinsfile   # Main CI/CD pipeline
 │   ├── k8s/          # Jenkins deployment manifests
 │   └── scripts/      # Setup scripts
+├── monitoring/       # ⭐ Prometheus & Grafana Monitoring
+│   ├── prometheus/   # Prometheus configuration and deployment
+│   ├── grafana/      # Grafana configuration and dashboards
+│   └── alerts/       # Alert rules
 ├── web/              # Web frontend with Azure ML/Kafka routing
 │   ├── main.py       # FastAPI server with intelligent routing
 │   ├── azure_ml_client.py  # Azure ML endpoint client
@@ -197,6 +201,27 @@ See [terraform/README.md](terraform/README.md) for details.
 
 ## 📊 Monitoring
 
+### Prometheus & Grafana Stack
+
+Complete monitoring solution with:
+- **Prometheus**: Metrics collection and storage
+- **Grafana**: Beautiful dashboards and visualization
+- **Pre-configured Dashboards**: LLM Platform-specific metrics
+- **Alerting**: Configurable alert rules
+
+**Quick Start:**
+```bash
+# Deploy monitoring stack
+kubectl apply -f monitoring/prometheus/
+kubectl apply -f monitoring/grafana/
+
+# Access dashboards
+kubectl port-forward service/grafana 3000:80 -n monitoring
+# Open: http://localhost:3000 (admin/admin)
+```
+
+See [monitoring/README.md](monitoring/README.md) for complete setup.
+
 ### Azure ML Monitoring
 - **Endpoint Metrics**: Requests, latency, errors
 - **Model Performance**: Accuracy, drift detection
@@ -205,7 +230,9 @@ See [terraform/README.md](terraform/README.md) for details.
 ### Application Monitoring
 - **Web Frontend**: http://localhost:8000/health
 - **Worker**: http://localhost:8081/health
-- **Metrics**: http://localhost:8080/metrics (Prometheus)
+- **Metrics**: http://localhost:8080/metrics (Prometheus format)
+- **Prometheus**: http://localhost:9090 (if deployed)
+- **Grafana**: http://localhost:3000 (if deployed)
 
 ## 🔄 CI/CD Pipeline
 

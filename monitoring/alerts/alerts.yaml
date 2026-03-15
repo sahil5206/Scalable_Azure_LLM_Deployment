@@ -1,0 +1,86 @@
+groups:
+  - name: llm_platform_alerts
+    interval: 30s
+    rules:
+      # High Error Rate Alert
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(llm_worker_requests_total{status="error"}[5m])) 
+          / 
+          sum(rate(llm_worker_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected in LLM worker"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      # High Latency Alert
+      - alert: HighRequestLatency
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(llm_worker_request_duration_seconds_bucket[5m])) by (le)
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request latency detected"
+          description: "95th percentile latency is {{ $value }}s (threshold: 10s)"
+
+      # Kafka Consumer Lag Alert
+      - alert: HighKafkaConsumerLag
+        expr: llm_worker_kafka_consumer_lag > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Kafka consumer lag detected"
+          description: "Consumer lag is {{ $value }} messages (threshold: 1000)"
+
+      # Worker Down Alert
+      - alert: WorkerServiceDown
+        expr: up{job="llm-worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LLM Worker service is down"
+          description: "Worker service has been down for more than 2 minutes"
+
+      # High Memory Usage Alert
+      - alert: HighMemoryUsage
+        expr: |
+          (container_memory_usage_bytes{pod=~"llm-worker.*"} 
+          / 
+          container_spec_memory_limit_bytes{pod=~"llm-worker.*"}) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage in worker pods"
+          description: "Memory usage is {{ $value | humanizePercentage }}"
+
+      # High CPU Usage Alert
+      - alert: HighCPUUsage
+        expr: |
+          rate(container_cpu_usage_seconds_total{pod=~"llm-worker.*"}[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage in worker pods"
+          description: "CPU usage is {{ $value | humanizePercentage }}"
+
+      # Model Inference Slow Alert
+      - alert: SlowModelInference
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(llm_worker_model_inference_duration_seconds_bucket[5m])) by (le)
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow model inference detected"
+          description: "95th percentile inference time is {{ $value }}s (threshold: 30s)"
